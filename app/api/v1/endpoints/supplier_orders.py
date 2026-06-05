@@ -11,6 +11,12 @@ from app.schemas.supplier_order import (
     SupplierOrderReview,
     SupplierOrderResponse,
 )
+from app.models.supplier import Supplier
+from bot.notifications import (
+    notify_sent_to_supplier,
+    notify_invoice_received,
+    notify_invoice_reviewed,
+)
 from app.services.event_log import EventLogService
 
 router = APIRouter(prefix="/supply-requests", tags=["Заказы поставщикам"])
@@ -82,6 +88,25 @@ async def create_order(
     )
 
     await db.refresh(order)
+    # Получить название поставщика
+    supplier_result = await db.execute(
+        select(Supplier).where(Supplier.id == data.supplier_id)
+    )
+    supplier = supplier_result.scalar_one_or_none()
+    supplier_name = supplier.name if supplier else f"#{data.supplier_id}"
+
+    # Получить заявку для уведомления
+    req_result = await db.execute(
+        select(SupplyRequest).where(SupplyRequest.id == request_id)
+    )
+    req = req_result.scalar_one_or_none()
+
+    await notify_sent_to_supplier(
+        db=db,
+        request=req,
+        manager=user,
+        supplier_name=supplier_name,
+    )
     return order
 
 
@@ -142,6 +167,24 @@ async def add_invoice(
     )
 
     await db.refresh(order)
+    # Уведомление мастеру и РП
+    req_result = await db.execute(
+        select(SupplyRequest).where(SupplyRequest.id == request_id)
+    )
+    req = req_result.scalar_one_or_none()
+
+    supplier_result = await db.execute(
+        select(Supplier).where(Supplier.id == order.supplier_id)
+    )
+    supplier = supplier_result.scalar_one_or_none()
+
+    await notify_invoice_received(
+        db=db,
+        request=req,
+        invoice_number=data.invoice_number,
+        invoice_amount=str(data.invoice_amount),
+        supplier_name=supplier.name if supplier else "—",
+    )
     return order
 
 
@@ -185,4 +228,16 @@ async def review_invoice(
     )
 
     await db.refresh(order)
+    # Уведомление снабженцу
+    req_result = await db.execute(
+        select(SupplyRequest).where(SupplyRequest.id == request_id)
+    )
+    req = req_result.scalar_one_or_none()
+
+    await notify_invoice_reviewed(
+        db=db,
+        request=req,
+        reviewer=user,
+        approved=data.approved,
+    )
     return order

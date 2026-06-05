@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Query
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from bot.notifications import notify_request_created
 
 from app.core.deps import CurrentUser, ManagerUser, StaffUser, DBSession
 from app.core.enums import EventActionType, RequestStatus, REQUEST_STATUS_TRANSITIONS, UserRole
@@ -73,6 +74,9 @@ async def create_request(
         payload={"object_id": data.object_id, "priority": data.priority},
         description=f"Заявка создана: {req.request_number}",
     )
+
+    # Уведомляем снабженцев о новой заявке
+    await notify_request_created(db=db, request=req, creator=user)
 
     # Перезагружаем с items
     result = await db.execute(
